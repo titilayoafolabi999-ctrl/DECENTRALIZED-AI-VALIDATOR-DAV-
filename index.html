@@ -9,8 +9,9 @@
     
     <script type="module">
         
-        // --- GLOBAL CONFIGURATION (Qubic Environment Variables) ---
+        // --- GLOBAL CONFIGURATION ---
         const userId = 'QUBIC-VALIDATOR-0xABC123DEF456'; 
+        const CONTRACT_ADDRESS = "0xDAV_Audit_Contract";
         
         // --- APPLICATION STATE ---
         window.isQubicReady = false;
@@ -20,52 +21,78 @@
         // --- QUBIC MOCK SDK (Architectural Blueprint) ---
         
         const MockQubicClient = {
+            RPC_URL: "https://rpc.qubic.org",
+            EVENT_SIGS: [
+                "SubmissionCreated(address,string,uint256)",
+                "SubmissionValidated(address,uint256,bool)",
+                "ScoreUpdated(address,uint256)"
+            ],
+            
             init: function() {
+                // Simulate connection and event listeners setup
                 return new Promise(resolve => { setTimeout(() => resolve(true), 500); });
             },
             
+            /**
+             * Submits the audit code, simulates the QubicClient.submitTask logic.
+             * Returns the taskId/submissionId.
+             */
             submitTask: function(contractCode, agentId) {
                 return new Promise(resolve => {
+                    const submissionId = Math.floor(Math.random() * 1000000);
+                    const txHash = `TX_SUB_${Date.now()}`;
+                    
+                    // Simulate logging the SubmissionCreated event
+                    console.log(`Qubic SubmissionCreated Event Mock: {address: ${userId}, contract: ${CONTRACT_ADDRESS}, id: ${submissionId}}`);
+                    
+                    // The client side would typically wait for a transaction receipt here.
                     setTimeout(() => {
-                        const taskId = `QUBIT_TASK_${Date.now()}`;
-                        console.log(`Qubic Task submitted via Mock Client. Task ID: ${taskId}`);
-                        resolve(taskId);
-                    }, 2000 + Math.random() * 2000);
+                        resolve(submissionId);
+                    }, 1500); // Small delay for submission confirmation
                 });
             },
             
-            retrieveResult: function(taskId, contractCode) {
+            /**
+             * Simulates the decentralized execution and the subsequent SubmissionValidated event.
+             * Returns the structured AI Audit Report.
+             */
+            retrieveResult: function(submissionId, contractCode) {
+                // FIX: Removed the redundant 'new' keyword that caused the original constructor error.
                 return new Promise(resolve => {
                     setTimeout(() => {
-                        console.log(`Qubic Task ${taskId} completed. Generating dummy result.`);
-                        
-                        // Simple logic to generate a mock report based on code length
-                        const isVulnerable = contractCode.length % 2 === 0;
-                        const risk = isVulnerable ? (contractCode.length > 500 ? 'Critical' : 'High') : 'None';
+                        // --- Core AI Audit Logic (Mocked) ---
+                        const isVulnerable = contractCode.includes('msg.sender.call'); // Simple logic for Reentrancy test
+                        const risk = isVulnerable ? 'Critical' : 'None';
                         
                         const mockReport = {
-                            taskId: taskId,
-                            contractHash: hashData(contractCode), // Use hash for consistency
+                            taskId: `QUBIT_TASK_${submissionId}`,
+                            contractHash: hashData(contractCode),
                             overallRisk: risk,
-                            summary: isVulnerable ? "Reentrancy vulnerability detected due to external call before state update." : "Contract appears structurally sound with no immediate critical flaws.",
+                            summary: isVulnerable ? "Reentrancy vulnerability detected due to external call before state update. This high-risk flaw requires immediate attention." : "Contract appears structurally sound with no immediate critical flaws.",
                             vulnerabilities: isVulnerable ? [{
                                 id: "SWC-107",
                                 name: "Reentrancy",
                                 severity: risk,
-                                description: "The function performs an external call before updating the sender's balance, potentially allowing a malicious contract to re-enter the function and drain funds.",
-                                recommendation: "Apply the Checks-Effects-Interactions pattern. Move the balance update (effect) before the external call (interaction)."
+                                description: "The function performs an external call (msg.sender.call) before updating the sender's balance, violating the Checks-Effects-Interactions pattern. A malicious contract can recursively call the withdraw function.",
+                                recommendation: "Move the state update (balances[msg.sender] -= amount) to occur before the external call, or use the ReentrancyGuard contract from OpenZeppelin."
                             }] : []
                         };
+                        
+                        // Simulate logging the SubmissionValidated event
+                        const isValid = risk === 'None' || risk === 'Low';
+                        console.log(`Qubic SubmissionValidated Event Mock: {address: ${userId}, id: ${submissionId}, isValid: ${isValid}}`);
+
                         resolve(mockReport);
-                    }, 3000 + Math.random() * 3000);
+                    }, 4000 + Math.random() * 3000); // Longer delay for consensus
                 });
             },
             
             submitLedgerTransaction: function(txPayload) {
                 return new Promise(resolve => {
                     setTimeout(() => {
-                        const txId = `TX_${Date.now()}_${txPayload.hash.slice(2, 8)}`;
-                        console.log(`Proof-of-Validation logged to Ledger. Transaction ID: ${txId}`);
+                        const txId = `TX_PoV_${Date.now()}_${txPayload.hash.slice(2, 8)}`;
+                        // This simulates the transaction that might trigger the ScoreUpdated event
+                        console.log(`Proof-of-Validation Logged. Transaction ID: ${txId}`); 
                         resolve(txId);
                     }, 1000 + Math.random() * 500);
                 });
@@ -75,9 +102,7 @@
         // --- LEGACY GEMINI API EXECUTION ---
 
         /**
-         * @description Centralized execution using the Gemini API (Legacy fallback for demos).
-         * @param {string} contractCode The Solidity code input.
-         * @returns {Promise<Object>} A Promise that resolves with the structured AI Audit Report.
+         * @description Centralized execution using the Gemini API (Legacy fallback).
          */
         window.callGeminiAPI = async function(contractCode) {
             const apiKey = document.getElementById('gemini-api-key').value.trim();
@@ -89,7 +114,8 @@
             
             const payload = {
                 contents: [{ parts: [{ text: userQuery }] }],
-                tools: [{ "google_search": {} }],
+                // FIX: Removed the tools property because it conflicts with responseMimeType: 'application/json'
+                // tools: [{ "google_search": {} }], 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: {
                     responseMimeType: "application/json",
@@ -99,15 +125,12 @@
                             "overallRisk": { "type": "STRING", "description": "The highest severity risk found." },
                             "summary": { "type": "STRING" },
                             "vulnerabilities": {
-                                "type": "ARRAY",
-                                "items": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "id": { "type": "STRING", "description": "Standard identifier like SWC-107." },
-                                        "name": { "type": "STRING" },
-                                        "severity": { "type": "STRING" },
-                                        "description": { "type": "STRING" },
-                                        "recommendation": { "type": "STRING" }
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        id: { type: "STRING" }, name: { type: "STRING" }, severity: { type: "STRING" },
+                                        description: { type: "STRING" }, recommendation: { type: "STRING" }
                                     }
                                 }
                             }
@@ -142,37 +165,40 @@
                     }
                     
                     const parsedJson = JSON.parse(jsonString);
-                    
-                    // Add temporary ID for consistent reporting in the UI
                     parsedJson.taskId = `LEGACY_JOB_${Date.now()}`;
                     
                     return parsedJson;
 
                 } catch (error) {
                     lastError = error;
-                    console.warn(`Attempt ${attempt + 1} failed. Retrying...`);
-                    // Exponential backoff
                     if (attempt < maxRetries - 1) {
                         await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
                     }
                 }
             }
             throw new Error(`Failed to get a response after ${maxRetries} attempts. Last error: ${lastError.message}`);
-        }
+        }; 
 
         // --- CORE APPLICATION LOGIC ---
 
-        // Utility to generate a stable hash from any data (simulating cryptographic hashing)
         function hashData(data) {
-            const jsonString = JSON.stringify(data);
+            // Generates a simple, non-cryptographic hash for demonstration purposes
+            const jsonString = typeof data === 'string' ? data : JSON.stringify(data);
+            let hash = 0;
+            for (let i = 0; i < jsonString.length; i++) {
+                const char = jsonString.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash |= 0; // Convert to 32bit integer
+            }
+            // Use a simple random base and append a hex representation of the hash
             const base = `0x${Math.random().toString(16).slice(2, 12)}`;
-            return base + btoa(jsonString).slice(-20).toUpperCase();
+            return base + Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
         }
 
         window.addAuditToPublicFeed = function(data) {
             const resultsDiv = document.getElementById('public-audits-feed');
             
-            const date = (data.timestamp ? data.timestamp.toLocaleTimeString() : 'N/A');
+            const date = (data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : 'N/A');
             const overallRisk = data.overallRisk || 'Unknown';
             let color = 'bg-gray-600';
             if (overallRisk === 'Critical' || overallRisk === 'High') color = 'bg-red-700';
@@ -185,7 +211,7 @@
                     <p class="font-semibold text-sm mt-1">${data.summary}</p>
                     <span class="inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${color} text-white">${overallRisk} Risk</span>
                     <span class="text-xs text-gray-500 float-right">${date}</span>
-                    <p class="text-xs text-cyan-400 font-mono pt-1">ID: ${data.txId || data.taskId || 'N/A'}</p>
+                    <p class="text-xs text-cyan-400 font-mono pt-1">TX/ID: ${data.txId || data.taskId || 'N/A'}</p>
                 </div>
             `;
             
@@ -195,7 +221,7 @@
                 resultsDiv.removeChild(resultsDiv.lastChild);
             }
             document.querySelector('#public-audits-feed .placeholder-text')?.remove();
-        }; // Semicolon added for safety
+        }; 
 
         window.runAudit = async function() {
             const codeInput = document.getElementById('contract-code').value;
@@ -204,34 +230,45 @@
             
             if (!codeInput || codeInput.length < 50) { statusDiv.innerHTML = '<span class="text-red-400">Error: Please provide a full contract (>=50 chars).</span>'; return; }
             if (executionMode === 'qubic' && !window.isQubicReady) { statusDiv.innerHTML = '<span class="text-yellow-400">Qubic Network connecting... Please wait.</span>'; return; }
+            if (executionMode === 'legacy' && !document.getElementById('gemini-api-key').value.trim()) { 
+                statusDiv.innerHTML = '<span class="text-red-400">Error: Please provide a Gemini API Key for Legacy Mode.</span>';
+                return;
+            }
 
             // 1. Set Loading State
             submitBtn.disabled = true;
             document.getElementById('audit-report-container').innerHTML = '<div class="p-6 text-center text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i> Executing Task...</div>';
             
             let auditReport;
-            let txId = 'N/A'; // For Legacy mode
+            let txId = 'N/A';
             let auditHash;
             
             try {
                 if (executionMode === 'qubic') {
                     // --- QUBIC (Decentralized Mock) FLOW ---
-                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 1: Submitting Quibit...';
-                    statusDiv.innerHTML = '<span class="text-cyan-400">Phase 1: Submitting task to Qubic Network (Mock) for decentralized execution...</span>';
-
-                    const taskId = await MockQubicClient.submitTask(codeInput, 'AI_AUDITOR_JOB_ID');
                     
-                    statusDiv.innerHTML = `<span class="text-cyan-400">Phase 2: Qubic Task ${taskId} is being processed by the AI Agent nodes...</span>`;
-                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 2: Awaiting Quibit Result...';
+                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 1: Submitting `SubmissionCreated`...';
+                    statusDiv.innerHTML = '<span class="text-cyan-400">Phase 1: Submitting task to Qubic Network (Mock) and waiting for `SubmissionCreated` event...</span>';
 
-                    auditReport = await MockQubicClient.retrieveResult(taskId, codeInput);
+                    // Simulates QubicClient.submitTask() returning the submission ID
+                    const submissionId = await MockQubicClient.submitTask(codeInput, CONTRACT_ADDRESS);
+                    
+                    statusDiv.innerHTML = `<span class="text-cyan-400">Phase 2: Submission ID ${submissionId} created. Awaiting agent consensus and \`SubmissionValidated\` event...</span>`;
+                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 2: Awaiting Validation...';
+
+                    // Simulates polling for the SubmissionValidated event which contains the result
+                    auditReport = await MockQubicClient.retrieveResult(submissionId, codeInput);
 
                     auditHash = hashData(auditReport);
                     
                     const txPayload = { hash: auditHash, risk: auditReport.overallRisk, summary: auditReport.summary, validator: userId };
+                    
+                    statusDiv.innerHTML = '<span class="text-cyan-400">Phase 3: Consensus Reached. Logging Proof-of-Validation transaction to Ledger...</span>';
+                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 3: Logging PoV...';
+                    
                     txId = await MockQubicClient.submitLedgerTransaction(txPayload);
                     
-                    statusDiv.innerHTML = '<span class="text-green-400">Phase 3: Audit Complete. Immutable Proof-of-Validation Logged (Mock).</span>';
+                    statusDiv.innerHTML = `<span class="text-green-400">DAV Audit Complete. PoV Logged (TX: ${txId}).</span>`;
 
                 } else {
                     // --- LEGACY (Centralized API) FLOW ---
@@ -239,8 +276,6 @@
                     statusDiv.innerHTML = '<span class="text-orange-400">Running Legacy Audit via Centralized Gemini API...</span>';
 
                     auditReport = await window.callGeminiAPI(codeInput);
-                    
-                    // Legacy mode doesn't log PoV, but we need a report hash for the card
                     auditHash = hashData(auditReport); 
                     
                     statusDiv.innerHTML = '<span class="text-green-400">Legacy Audit Complete. (No Decentralized Proof Logged).</span>';
@@ -249,7 +284,7 @@
                 // 2. Report Visualization and Public Feed Update (Common to both modes)
                 window.updateAuditReport(auditReport, executionMode);
                 window.addAuditToPublicFeed({
-                    timestamp: new Date(),
+                    timestamp: new Date().getTime(), // Use epoch time for logging
                     overallRisk: auditReport.overallRisk,
                     summary: auditReport.summary,
                     auditHash: auditHash,
@@ -267,7 +302,7 @@
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fas fa-microchip mr-2"></i> Run DAV Audit';
             }
-        }; // Semicolon added for safety
+        }; 
 
         window.updateAuditReport = function(report, mode) {
             const reportContainer = document.getElementById('audit-report-container');
@@ -294,11 +329,11 @@
                 : '<p class="text-lg text-green-400"><i class="fas fa-shield-alt mr-2"></i> No Critical or High-Risk Vulnerabilities Detected.</p>';
 
             reportContainer.innerHTML = `
-                <div class="p-6 rounded-xl shadow-2xl ${riskColor} bg-opacity-90">
+                <div class="p-6 rounded-t-xl shadow-2xl ${riskColor} bg-opacity-90">
                     <h3 class="text-3xl font-extrabold text-white">Audit Report Card (${mode === 'qubic' ? 'Qubic Mock' : 'Legacy'})</h3>
                     <p class="mt-2 text-white text-lg">Overall Security Risk Level:</p>
                     <span class="inline-block mt-1 text-2xl font-bold px-4 py-1 rounded-full bg-black bg-opacity-50 text-white">${risk.toUpperCase()}</span>
-                    <p class="text-xs text-gray-300 mt-2 font-mono">${mode === 'qubic' ? 'Qubic Task ID' : 'Legacy Job ID'}: ${report.taskId || 'N/A'}</p>
+                    <p class="text-xs text-gray-300 mt-2 font-mono">${mode === 'qubic' ? 'Qubic Submission ID' : 'Legacy Job ID'}: ${report.taskId || 'N/A'}</p>
                 </div>
                 <div class="p-6 bg-gray-800 rounded-b-xl border-t-2 border-cyan-500/50">
                     <p class="text-xl font-semibold mb-4 text-white">${report.summary || 'Summary not provided by AI.'}</p>
@@ -309,7 +344,7 @@
                     </ul>
                 </div>
             `;
-        }; // Semicolon added for safety
+        }; 
         
         // --- UI MODE HANDLER ---
         window.setExecutionMode = function(mode) {
@@ -324,11 +359,11 @@
                 statusDiv.classList.add('text-orange-400');
             } else {
                 keyInput.classList.add('hidden');
-                statusDiv.textContent = window.isQubicReady ? 'Qubic Network Ready (Mock)' : 'Qubic Network Initializing...';
+                statusDiv.textContent = window.isQubicReady ? 'Qubic Network Ready (Event-Driven Mock)' : 'Qubic Network Initializing...';
                 statusDiv.classList.remove('text-orange-400');
                 statusDiv.classList.add('text-green-400');
             }
-        }; // Semicolon added for safety
+        }; 
 
         // --- Initialization ---
 
@@ -436,8 +471,8 @@
             <div class="flex space-x-6 items-center">
                 <div class="flex items-center space-x-2">
                     <input type="radio" id="radio-qubic" name="execution-mode" value="qubic" class="form-radio text-cyan-500 h-4 w-4">
-                    <label for="radio-qubic" class="text-cyan-400 font-bold">QUBIC MODE (Decentralized Mock)</label>
-                    <span class="text-xs text-gray-400">(Recommended for Hackathon)</span>
+                    <label for="radio-qubic" class="text-cyan-400 font-bold">QUBIC MODE (Event-Driven Mock)</label>
+                    <span class="text-xs text-gray-400">(Simulating Qubic SDK Events)</span>
                 </div>
                 <div class="flex items-center space-x-2">
                     <input type="radio" id="radio-legacy" name="execution-mode" value="legacy" class="form-radio text-orange-500 h-4 w-4">
@@ -460,12 +495,25 @@
                 <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Quibit Submission (Solidity Source)</h2>
                 
                 <textarea id="contract-code" rows="15" class="w-full p-4 text-green-300 font-mono text-sm rounded-lg border" placeholder="// Paste your Solidity contract code here for the AI Agent to validate.
-// Example: A common reentrancy vulnerability.
-function withdraw(uint256 amount) public {
-    require(balances[msg.sender] >= amount);
-    (bool success, ) = msg.sender.call{value: amount}(''); // External call before state update
-    if (success) {
-        balances[msg.sender] -= amount; // State change should be BEFORE the call (Checks-Effects-Interactions pattern)
+// Example: A simple, vulnerable bank contract (Reentrancy).
+pragma solidity ^0.8.0;
+
+contract VulnerableBank {
+    mapping(address => uint256) public balances;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint256 amount) public {
+        require(balances[msg.sender] >= amount, \"Insufficient balance\");
+
+        // VULNERABLE SPOT: External call BEFORE state update.
+        (bool success, ) = msg.sender.call{value: amount}(\"\"); 
+        require(success, \"Transfer failed\");
+
+        // State update should be here (before the call)!
+        balances[msg.sender] -= amount; 
     }
 }
 "></textarea>
