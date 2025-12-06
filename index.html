@@ -45,7 +45,6 @@
                     // Simulate logging the SubmissionCreated event
                     console.log(`Qubic SubmissionCreated Event Mock: {address: ${userId}, contract: ${CONTRACT_ADDRESS}, id: ${submissionId}}`);
                     
-                    // The client side would typically wait for a transaction receipt here.
                     setTimeout(() => {
                         resolve(submissionId);
                     }, 1500); // Small delay for submission confirmation
@@ -57,33 +56,31 @@
              * Returns the structured AI Audit Report.
              */
             retrieveResult: function(submissionId, contractCode) {
-                // FIX: Removed the redundant 'new' keyword that caused the original constructor error.
-                return new Promise(resolve => {
-                    setTimeout(() => {
-                        // --- Core AI Audit Logic (Mocked) ---
-                        const isVulnerable = contractCode.includes('msg.sender.call'); // Simple logic for Reentrancy test
-                        const risk = isVulnerable ? 'Critical' : 'None';
-                        
-                        const mockReport = {
-                            taskId: `QUBIT_TASK_${submissionId}`,
-                            contractHash: hashData(contractCode),
-                            overallRisk: risk,
-                            summary: isVulnerable ? "Reentrancy vulnerability detected due to external call before state update. This high-risk flaw requires immediate attention." : "Contract appears structurally sound with no immediate critical flaws.",
-                            vulnerabilities: isVulnerable ? [{
-                                id: "SWC-107",
-                                name: "Reentrancy",
-                                severity: risk,
-                                description: "The function performs an external call (msg.sender.call) before updating the sender's balance, violating the Checks-Effects-Interactions pattern. A malicious contract can recursively call the withdraw function.",
-                                recommendation: "Move the state update (balances[msg.sender] -= amount) to occur before the external call, or use the ReentrancyGuard contract from OpenZeppelin."
-                            }] : []
-                        };
-                        
-                        // Simulate logging the SubmissionValidated event
-                        const isValid = risk === 'None' || risk === 'Low';
-                        console.log(`Qubic SubmissionValidated Event Mock: {address: ${userId}, id: ${submissionId}, isValid: ${isValid}}`);
+                // --- Core AI Audit Logic (Mocked) ---
+                // Simple logic: If the code contains "unchecked" or "unsafe" it's critical, otherwise low.
+                const isUnsafe = contractCode.toLowerCase().includes('unchecked') || contractCode.toLowerCase().includes('unsafe'); 
+                const risk = isUnsafe ? 'Critical' : 'Low';
+                
+                const mockReport = {
+                    taskId: `QUBIT_TASK_${submissionId}`,
+                    contractHash: hashData(contractCode),
+                    overallRisk: risk,
+                    summary: isUnsafe ? "Critical vulnerability related to unchecked operations or low-level unsafe code detected, posing a major threat to contract integrity." : "The code appears to follow secure design patterns, achieving a Low Risk score from the Quorum.",
+                    vulnerabilities: isUnsafe ? [{
+                        id: "SWC-101",
+                        name: "Integer Arithmetic Vulnerability (Unchecked)",
+                        severity: risk,
+                        description: "The code contains unchecked arithmetic operations (e.g., 'unchecked' block in Solidity or 'unsafe' in Rust) which can lead to overflow/underflow attacks, allowing attackers to manipulate balance or storage variables.",
+                        recommendation: "Use SafeMath libraries or ensure all critical arithmetic operations are checked by default. Refactor unsafe blocks immediately."
+                    }] : []
+                };
+                
+                // Simulate logging the SubmissionValidated event
+                const isValid = risk === 'Low' || risk === 'None';
+                console.log(`Qubic SubmissionValidated Event Mock: {address: ${userId}, id: ${submissionId}, isValid: ${isValid}}`);
 
-                        resolve(mockReport);
-                    }, 4000 + Math.random() * 3000); // Longer delay for consensus
+                return new Promise(resolve => {
+                    setTimeout(() => resolve(mockReport), 4000 + Math.random() * 3000); // Longer delay for consensus
                 });
             },
             
@@ -108,14 +105,14 @@
             const apiKey = document.getElementById('gemini-api-key').value.trim();
             if (!apiKey) throw new Error("API Key is required for Legacy Mode execution.");
             
-            const systemPrompt = "You are a specialized smart contract security auditor. Analyze the following Solidity code. Provide an audit report as a single JSON object. The object must contain three fields: 'overallRisk' (string: Critical, High, Medium, Low, or None), 'summary' (string: a concise description of the findings), and 'vulnerabilities' (array: list of detected vulnerabilities, each object must contain 'id', 'name', 'severity', 'description', and 'recommendation'). If no critical vulnerabilities are found, the array should be empty.";
+            // --- UPDATED SYSTEM AND USER PROMPTS FOR BLOCKCHAIN FOCUS & AGENT NAME ---
+            const systemPrompt = "You are Oracle X, a highly specialized AI security auditor built by Hackershive, focusing primarily on **Blockchain and Distributed Ledger Technology (DLT) languages** (e.g., Solidity, Rust for Solana/Polkadot, Go for Hyperledger, Move). Analyze the provided code for critical vulnerabilities common in smart contracts and decentralized logic, such as reentrancy, access control flaws, denial of service, and integer overflows. Identify the programming language and provide an audit report as a single JSON object. The object must contain three fields: 'overallRisk' (string: Critical, High, Medium, Low, or None), 'summary' (string: a concise description of the findings, mentioning the language identified and DLT context), and 'vulnerabilities' (array: list of detected vulnerabilities, each object must contain 'id', 'name', 'severity', 'description', and 'recommendation'). If no critical vulnerabilities are found, the array should be empty.";
             
-            const userQuery = `Audit the following contract for common vulnerabilities like Reentrancy, Overflow, and Logic flaws. Return the result strictly in JSON format.\n\nCONTRACT:\n${contractCode}`;
+            const userQuery = `Audit the following code for common language-specific and blockchain-specific security flaws. Return the result strictly in JSON format.\n\nCODE:\n${contractCode}`;
+            // --- END UPDATED PROMPTS ---
             
             const payload = {
                 contents: [{ parts: [{ text: userQuery }] }],
-                // FIX: Removed the tools property because it conflicts with responseMimeType: 'application/json'
-                // tools: [{ "google_search": {} }], 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: {
                     responseMimeType: "application/json",
@@ -179,7 +176,7 @@
             throw new Error(`Failed to get a response after ${maxRetries} attempts. Last error: ${lastError.message}`);
         }; 
 
-        // --- CORE APPLICATION LOGIC ---
+        // --- UTILITY FUNCTIONS ---
 
         function hashData(data) {
             // Generates a simple, non-cryptographic hash for demonstration purposes
@@ -195,6 +192,35 @@
             return base + Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
         }
 
+        // --- FILE UPLOAD HANDLER ---
+
+        window.handleFileUpload = function(event) {
+            const file = event.target.files[0];
+            const codeInput = document.getElementById('contract-code');
+            const statusDiv = document.getElementById('audit-status');
+            
+            if (!file) return;
+
+            // Simple file size check (max 1MB)
+            if (file.size > 1024 * 1024) {
+                statusDiv.innerHTML = '<span class="text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i> Error: File too large (max 1MB).</span>';
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                codeInput.value = e.target.result;
+                statusDiv.innerHTML = `<span class="text-green-400"><i class="fas fa-file-code mr-1"></i> File loaded: ${file.name}. Click 'Run DAV Audit' to begin.</span>`;
+            };
+            reader.onerror = () => {
+                statusDiv.innerHTML = '<span class="text-red-400"><i class="fas fa-times-circle mr-1"></i> Error reading file.</span>';
+            };
+            reader.readAsText(file);
+        };
+
+        // --- REPORTING AND UI FUNCTIONS ---
+        
         window.addAuditToPublicFeed = function(data) {
             const resultsDiv = document.getElementById('public-audits-feed');
             
@@ -228,10 +254,10 @@
             const submitBtn = document.getElementById('submit-btn');
             const statusDiv = document.getElementById('audit-status');
             
-            if (!codeInput || codeInput.length < 50) { statusDiv.innerHTML = '<span class="text-red-400">Error: Please provide a full contract (>=50 chars).</span>'; return; }
-            if (executionMode === 'qubic' && !window.isQubicReady) { statusDiv.innerHTML = '<span class="text-yellow-400">Qubic Network connecting... Please wait.</span>'; return; }
+            if (!codeInput || codeInput.length < 50) { statusDiv.innerHTML = '<span class="text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i> Error: Please provide a full code snippet (>=50 chars).</span>'; return; }
+            if (executionMode === 'qubic' && !window.isQubicReady) { statusDiv.innerHTML = '<span class="text-yellow-400"><i class="fas fa-sync fa-spin mr-1"></i> Qubic Network connecting... Please wait.</span>'; return; }
             if (executionMode === 'legacy' && !document.getElementById('gemini-api-key').value.trim()) { 
-                statusDiv.innerHTML = '<span class="text-red-400">Error: Please provide a Gemini API Key for Legacy Mode.</span>';
+                statusDiv.innerHTML = '<span class="text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i> Error: Please provide a Gemini API Key for Legacy Mode.</span>';
                 return;
             }
 
@@ -247,13 +273,13 @@
                 if (executionMode === 'qubic') {
                     // --- QUBIC (Decentralized Mock) FLOW ---
                     
-                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 1: Submitting `SubmissionCreated`...';
-                    statusDiv.innerHTML = '<span class="text-cyan-400">Phase 1: Submitting task to Qubic Network (Mock) and waiting for `SubmissionCreated` event...</span>';
+                    submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 1: Submitting Task...';
+                    statusDiv.innerHTML = '<span class="text-cyan-400"><i class="fas fa-upload mr-1"></i> Phase 1: Submitting task to Qubic Network (Mock) and waiting for `SubmissionCreated` event...</span>';
 
                     // Simulates QubicClient.submitTask() returning the submission ID
                     const submissionId = await MockQubicClient.submitTask(codeInput, CONTRACT_ADDRESS);
                     
-                    statusDiv.innerHTML = `<span class="text-cyan-400">Phase 2: Submission ID ${submissionId} created. Awaiting agent consensus and \`SubmissionValidated\` event...</span>`;
+                    statusDiv.innerHTML = `<span class="text-cyan-400"><i class="fas fa-users mr-1"></i> Phase 2: Submission ID ${submissionId} created. Awaiting agent Quorum consensus...</span>`;
                     submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 2: Awaiting Validation...';
 
                     // Simulates polling for the SubmissionValidated event which contains the result
@@ -263,22 +289,22 @@
                     
                     const txPayload = { hash: auditHash, risk: auditReport.overallRisk, summary: auditReport.summary, validator: userId };
                     
-                    statusDiv.innerHTML = '<span class="text-cyan-400">Phase 3: Consensus Reached. Logging Proof-of-Validation transaction to Ledger...</span>';
+                    statusDiv.innerHTML = '<span class="text-cyan-400"><i class="fas fa-certificate mr-1"></i> Phase 3: Consensus Reached. Logging Proof-of-Validation transaction to Ledger...</span>';
                     submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Phase 3: Logging PoV...';
                     
                     txId = await MockQubicClient.submitLedgerTransaction(txPayload);
                     
-                    statusDiv.innerHTML = `<span class="text-green-400">DAV Audit Complete. PoV Logged (TX: ${txId}).</span>`;
+                    statusDiv.innerHTML = `<span class="text-green-400"><i class="fas fa-check-circle mr-1"></i> DAV Audit Complete. PoV Logged (TX: ${txId}).</span>`;
 
                 } else {
                     // --- LEGACY (Centralized API) FLOW ---
                     submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Running Legacy Audit...';
-                    statusDiv.innerHTML = '<span class="text-orange-400">Running Legacy Audit via Centralized Gemini API...</span>';
+                    statusDiv.innerHTML = '<span class="text-orange-400"><i class="fas fa-server mr-1"></i> Running Legacy Audit via Centralized Gemini API...</span>';
 
                     auditReport = await window.callGeminiAPI(codeInput);
                     auditHash = hashData(auditReport); 
                     
-                    statusDiv.innerHTML = '<span class="text-green-400">Legacy Audit Complete. (No Decentralized Proof Logged).</span>';
+                    statusDiv.innerHTML = '<span class="text-green-400"><i class="fas fa-check-circle mr-1"></i> Legacy Audit Complete. (No Decentralized Proof Logged).</span>';
                 }
                 
                 // 2. Report Visualization and Public Feed Update (Common to both modes)
@@ -380,7 +406,7 @@
                     window.setExecutionMode('qubic'); 
                     document.getElementById('radio-qubic').checked = true;
                     document.getElementById('submit-btn').disabled = false;
-                    document.getElementById('public-audits-feed').innerHTML = '<div class="text-center text-gray-500 pt-4 placeholder-text">Simulated PoV Ledger is active. Run an audit to log the first transaction.</div>';
+                    document.getElementById('public-audits-feed').innerHTML = '<div class="text-center text-gray-500 pt-4 placeholder-text"><i class="fas fa-layer-group mr-1"></i> Simulated PoV Ledger is active. Run an audit to log the first transaction.</div>';
                 } else {
                     throw new Error("Connection failed.");
                 }
@@ -450,15 +476,27 @@
             border-color: var(--neon-blue);
             box-shadow: 0 0 0 2px rgba(0, 224, 255, 0.5);
         }
+
+        .upload-label {
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-label:hover {
+            background-color: #1e293b;
+        }
     </style>
 </head>
 <body class="min-h-screen p-4 sm:p-8">
     <div class="max-w-7xl mx-auto">
         <header class="text-center mb-10 p-4 border-b-2 border-cyan-600/50">
             <h1 class="text-4xl sm:text-5xl font-extrabold text-cyan-400 header-glow tracking-wider">
-                DECENTRALIZED AI VALIDATOR (DAV)
+                HACKERSHIVE: DECENTRALIZED AI VALIDATOR (DAV)
             </h1>
-            <p class="text-xl text-gray-400 font-mono mt-1">Hybrid Execution Mode</p>
+            <p class="text-xl text-gray-400 font-mono mt-1">Powered by Hackershive | Blockchain Security Focus</p>
             <div class="flex flex-col sm:flex-row justify-center items-center space-x-0 sm:space-x-4 mt-3 text-sm">
                 <p id="status-display" class="font-semibold text-green-400 mb-2 sm:mb-0"><i class="fas fa-check-circle mr-2"></i> Qubic Network Initializing</p>
                 <p id="user-id-display" class="text-gray-500 font-mono text-xs">Validator ID: Connecting...</p>
@@ -468,16 +506,16 @@
         <!-- EXECUTION MODE SELECTION -->
         <section class="bg-gray-900/70 p-4 rounded-xl shadow-lg mb-8 border border-gray-700">
             <h2 class="text-lg font-semibold mb-3 text-white">Execution Mode</h2>
-            <div class="flex space-x-6 items-center">
+            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-6 items-start sm:items-center">
                 <div class="flex items-center space-x-2">
                     <input type="radio" id="radio-qubic" name="execution-mode" value="qubic" class="form-radio text-cyan-500 h-4 w-4">
                     <label for="radio-qubic" class="text-cyan-400 font-bold">QUBIC MODE (Event-Driven Mock)</label>
-                    <span class="text-xs text-gray-400">(Simulating Qubic SDK Events)</span>
+                    <span class="text-xs text-gray-400">(Decentralized, Verified PoV)</span>
                 </div>
                 <div class="flex items-center space-x-2">
                     <input type="radio" id="radio-legacy" name="execution-mode" value="legacy" class="form-radio text-orange-500 h-4 w-4">
                     <label for="radio-legacy" class="text-orange-400 font-bold">LEGACY MODE (Centralized API)</label>
-                    <span class="text-xs text-gray-400">(Requires API Key)</span>
+                    <span class="text-xs text-gray-400">(Fast, Single-Source Audit)</span>
                 </div>
             </div>
         </section>
@@ -492,34 +530,42 @@
         <main class="grid lg:grid-cols-3 gap-8">
             <!-- LEFT COLUMN: Input & Control -->
             <div class="lg:col-span-2 bg-gray-800 p-6 rounded-xl shadow-xl border border-cyan-500/20">
-                <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Quibit Submission (Solidity Source)</h2>
+                <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Blockchain Logic Submission (EVM, Solana, etc.)</h2>
                 
-                <textarea id="contract-code" rows="15" class="w-full p-4 text-green-300 font-mono text-sm rounded-lg border" placeholder="// Paste your Solidity contract code here for the AI Agent to validate.
-// Example: A simple, vulnerable bank contract (Reentrancy).
-pragma solidity ^0.8.0;
+                <!-- File Upload Feature -->
+                <div class="mb-4">
+                    <input type="file" id="code-file-upload" accept=".sol,.rs,.js,.ts,.go,.py,.move" class="hidden" onchange="handleFileUpload(event)">
+                    <label for="code-file-upload" class="upload-label px-4 py-2 border border-gray-600 rounded-lg text-sm text-cyan-400 bg-gray-900/50 hover:border-cyan-400 hover:text-white">
+                        <i class="fas fa-upload mr-2"></i> Upload Code File (.sol, .rs, .js, .move, etc.)
+                    </label>
+                    <span class="text-xs text-gray-500 ml-3">Max size: 1MB</span>
+                </div>
 
-contract VulnerableBank {
+                <textarea id="contract-code" rows="15" class="w-full p-4 text-green-300 font-mono text-sm rounded-lg border" placeholder="// Paste your Smart Contract or Blockchain Logic here.
+// Supported Languages include Solidity (EVM), Rust (Solana), Move (Sui/Aptos), Go (Hyperledger), and more.
+// The AI Agent (Oracle X) focuses specifically on vulnerabilities common to Distributed Ledger Technologies.
+
+contract VulnerableContract {
     mapping(address => uint256) public balances;
 
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
-    }
+    // Critical Reentrancy Vulnerability Example (SWC-107)
+    function withdraw() public {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0);
 
-    function withdraw(uint256 amount) public {
-        require(balances[msg.sender] >= amount, \"Insufficient balance\");
+        // State update AFTER external call (Vulnerable)
+        (bool success, ) = msg.sender.call{value: amount}(\"\");
 
-        // VULNERABLE SPOT: External call BEFORE state update.
-        (bool success, ) = msg.sender.call{value: amount}(\"\"); 
-        require(success, \"Transfer failed\");
-
-        // State update should be here (before the call)!
-        balances[msg.sender] -= amount; 
+        if (success) {
+            balances[msg.sender] = 0; // The attacker can call withdraw() recursively before this line executes.
+        }
+        require(success);
     }
 }
 "></textarea>
-
+                
                 <div id="audit-status" class="mt-4 p-3 bg-gray-900 rounded-lg text-center text-sm font-semibold h-10 flex items-center justify-center">
-                    <i class="fas fa-search mr-2"></i> Awaiting contract submission...
+                    <i class="fas fa-search mr-2"></i> Awaiting code submission...
                 </div>
                 
                 <button id="submit-btn" class="w-full mt-4 flex items-center justify-center px-6 py-3 border-2 border-cyan-400 text-base font-medium rounded-lg text-white bg-cyan-600 hover:bg-cyan-700 focus:outline-none focus:ring-4 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition duration-150 ease-in-out shadow-lg neon-glow-blue" disabled>
@@ -533,11 +579,11 @@ contract VulnerableBank {
                     Proof-of-Validation Ledger (PoV)
                 </h2>
                 <p class="text-sm text-gray-400 mb-4">
-                    Latest immutable transaction logs confirming audit existence on the Ledger. (Only logged in Qubic Mode)
+                    Latest immutable transaction logs confirming audit existence on the Ledger. (Only logged in Qubic Mode) 
                 </p>
                 <div id="public-audits-feed" class="space-y-3 max-h-96 overflow-y-auto">
                     <!-- Public PoV logs will be injected here -->
-                    <div class="text-center text-gray-500 pt-4"><i class="fas fa-sync fa-spin mr-2"></i> Connecting to Qubic Ledger...</div>
+                    <div class="text-center text-gray-500 pt-4"><i class="fas fa-layer-group mr-1"></i> Simulated PoV Ledger is active. Run an audit to log the first transaction.</div>
                 </div>
             </div>
 
